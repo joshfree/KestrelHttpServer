@@ -57,7 +57,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         private static readonly byte[] _unicodePipelinedRequests = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat(unicodeRequest, Pipelining)));
         private static readonly byte[] _unicodeRequest = Encoding.ASCII.GetBytes(unicodeRequest);
 
-        [Params(typeof(KestrelHttpParser))]
+        [Params(typeof(KestrelHttpParser), typeof(PrototypeParser))]
         public Type ParserType { get; set; }
 
         [Benchmark(Baseline = true, OperationsPerInvoke = InnerLoopCount)]
