@@ -131,6 +131,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
         }
 
         [ConditionalFact]
+        [IPv6SupportedCondition]
         [PortSupportedCondition(5000)]
         public async Task DefaultsToPort5000()
         {
