@@ -150,10 +150,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
 
                 Assert.Equal(5000, host.GetPort());
                 Assert.Single(testLogger.Messages, log => log.LogLevel == LogLevel.Debug &&
-                    string.Equals($"No listening endpoints were configured. Binding to {Constants.DefaultIPEndPoint} by default.",
+                    string.Equals($"No listening endpoints were configured. Binding to {Constants.DefaultServerAddress} by default.",
                     log.Message, StringComparison.Ordinal));
 
-                foreach (var testUrl in new[] { "http://127.0.0.1:5000", /* "http://[::1]:5000" */})
+                foreach (var testUrl in new[] { "http://127.0.0.1:5000", "http://[::1]:5000" })
                 {
                     Assert.Equal(new Uri(testUrl).ToString(), await HttpClientSlim.GetStringAsync(testUrl));
                 }
@@ -373,8 +373,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
                 var dataset = new TheoryData<string, Func<IServerAddressesFeature, string[]>>();
 
                 // Default host and port
-                dataset.Add(null, _ => new[] { "http://127.0.0.1:5000/", /*"http://[::1]:5000/"*/ });
-                dataset.Add(string.Empty, _ => new[] { "http://127.0.0.1:5000/", /*"http://[::1]:5000/"*/ });
+                dataset.Add(null, _ => new[] { "http://127.0.0.1:5000/", "http://[::1]:5000/" });
+                dataset.Add(string.Empty, _ => new[] { "http://127.0.0.1:5000/", "http://[::1]:5000/" });
 
                 // Static ports
                 var port = GetNextPort();
