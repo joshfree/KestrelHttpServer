@@ -131,18 +131,30 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
         }
 
         [ConditionalFact]
+        [PortSupportedCondition(5000)]
+        public Task DefaultsServerAddress_BindsToIPv4()
+        {
+            return RegisterDefaultServerAddresses_Success(new[] { "http://127.0.0.1:5000" });
+        }
+
+        [ConditionalFact]
         [IPv6SupportedCondition]
         [PortSupportedCondition(5000)]
-        public async Task DefaultsToPort5000()
+        public Task DefaultsServerAddress_BindsToIPv6()
+        {
+            return RegisterDefaultServerAddresses_Success(new[] { "http://127.0.0.1:5000", "http://[::1]:5000" });
+        }
+
+        private async Task RegisterDefaultServerAddresses_Success(IEnumerable<string> addresses)
         {
             var testLogger = new TestApplicationErrorLogger();
 
             var hostBuilder = new WebHostBuilder()
                .UseKestrel()
                .ConfigureServices(services =>
-                {
-                    services.AddSingleton<ILoggerFactory>(new KestrelTestLoggerFactory(testLogger));
-                })
+               {
+                   services.AddSingleton<ILoggerFactory>(new KestrelTestLoggerFactory(testLogger));
+               })
                .Configure(ConfigureEchoAddress);
 
             using (var host = hostBuilder.Build())
@@ -154,9 +166,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
                     string.Equals($"No listening endpoints were configured. Binding to {Constants.DefaultServerAddress} by default.",
                     log.Message, StringComparison.Ordinal));
 
-                foreach (var testUrl in new[] { "http://127.0.0.1:5000", "http://[::1]:5000" })
+                foreach (var address in addresses)
                 {
-                    Assert.Equal(new Uri(testUrl).ToString(), await HttpClientSlim.GetStringAsync(testUrl));
+                    Assert.Equal(new Uri(address).ToString(), await HttpClientSlim.GetStringAsync(address));
                 }
             }
         }
