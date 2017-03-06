@@ -369,8 +369,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                                         return false;
                                     }
 
-                                    var nameBuffer = headerSpan.Slice(nameStart, nameEnd - nameStart);
-                                    var valueBuffer = headerSpan.Slice(valueStart, valueEnd - valueStart);
+                                    var nameBuffer = new Span<byte>(pHeader + nameStart, nameEnd - nameStart);
+                                    var valueBuffer = new Span<byte>(pHeader + valueStart, valueEnd - valueStart);
 
                                     handler.OnHeader(nameBuffer, valueBuffer);
                                 }
