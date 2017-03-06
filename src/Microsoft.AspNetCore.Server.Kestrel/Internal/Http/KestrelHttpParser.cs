@@ -329,13 +329,23 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                                 index = reader.Index;
                             }
 
-                            Span<byte> headerSpan;
-
                             var endIndex = IndexOf(pBuffer, index, remaining, ByteLF);
+                            var length = 0;
 
                             if (endIndex != -1)
                             {
-                                headerSpan = new Span<byte>(pBuffer + index, (endIndex - index + 1));
+                                length = (endIndex - index + 1);
+                                var pHeader = pBuffer + index;
+
+                                if (!TakeSingleHeader(pHeader, length, out var nameStart, out var nameEnd, out var valueStart, out var valueEnd))
+                                {
+                                    return false;
+                                }
+
+                                var nameBuffer = new Span<byte>(pHeader + nameStart, nameEnd - nameStart);
+                                var valueBuffer = new Span<byte>(pHeader + valueStart, valueEnd - valueStart);
+
+                                handler.OnHeader(nameBuffer, valueBuffer);
                             }
                             else
                             {
@@ -350,28 +360,31 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
                                 // Make sure LF is included in lineEnd
                                 lineEnd = buffer.Move(lineEnd, 1);
-                                headerSpan = buffer.Slice(current, lineEnd).ToSpan();
+                                var headerSpan = buffer.Slice(current, lineEnd).ToSpan();
+
+                                fixed (byte* pHeader = &headerSpan.DangerousGetPinnableReference())
+                                {
+                                    if (!TakeSingleHeader(pHeader, headerSpan.Length, out var nameStart, out var nameEnd, out var valueStart, out var valueEnd))
+                                    {
+                                        return false;
+                                    }
+
+                                    var nameBuffer = headerSpan.Slice(nameStart, nameEnd - nameStart);
+                                    var valueBuffer = headerSpan.Slice(valueStart, valueEnd - valueStart);
+
+                                    handler.OnHeader(nameBuffer, valueBuffer);
+                                }
 
                                 // We're going to the next span after this since we know we crossed spans here
                                 // so mark the remaining as equal to the headerSpan so that we end up at 0
                                 // on the next iteration
                                 remaining = headerSpan.Length;
-                            }
-
-                            if (!TakeSingleHeader(headerSpan, out var nameStart, out var nameEnd, out var valueStart, out var valueEnd))
-                            {
-                                return false;
+                                length = headerSpan.Length;
                             }
 
                             // Skip the reader forward past the header line
-                            reader.Skip(headerSpan.Length);
-
-                            remaining -= headerSpan.Length;
-
-                            var nameBuffer = headerSpan.Slice(nameStart, nameEnd - nameStart);
-                            var valueBuffer = headerSpan.Slice(valueStart, valueEnd - valueStart);
-
-                            handler.OnHeader(nameBuffer, valueBuffer);
+                            reader.Skip(length);
+                            remaining -= length;
                         }
                     }
                 }
@@ -427,101 +440,97 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             return -1;
         }
 
-        private unsafe bool TakeSingleHeader(Span<byte> span, out int nameStart, out int nameEnd, out int valueStart, out int valueEnd)
+        private unsafe bool TakeSingleHeader(byte* pHeader, int headerLineLength, out int nameStart, out int nameEnd, out int valueStart, out int valueEnd)
         {
             nameStart = 0;
             nameEnd = -1;
             valueStart = -1;
             valueEnd = -1;
-            var headerLineLength = span.Length;
             var index = 0;
 
-            fixed (byte* pHeader = &span.DangerousGetPinnableReference())
+            var pCurrent = pHeader + index;
+            var pEnd = pHeader + headerLineLength;
+
+            nameEnd = IndexOf(pHeader, index, headerLineLength, ByteColon);
+
+            if (nameEnd == -1)
             {
-                var pCurrent = pHeader + index;
-                var pEnd = pHeader + headerLineLength;
+                RejectRequest(RequestRejectionReason.NoColonCharacterFoundInHeaderLine);
+            }
 
-                nameEnd = IndexOf(pHeader, index, headerLineLength, ByteColon);
+            if (IndexOfAny(pHeader, index, nameEnd, ByteTab, ByteSpace) != -1)
+            {
+                RejectRequest(RequestRejectionReason.WhitespaceIsNotAllowedInHeaderName);
+            }
 
-                if (nameEnd == -1)
+            // Skip colon
+            index += nameEnd + 1;
+            pCurrent += index;
+            valueStart = index;
+            var pValueStart = pCurrent;
+
+            while (pCurrent < pEnd)
+            {
+                var ch = *pCurrent;
+                if (ch != ByteTab && ch != ByteSpace && ch != ByteCR)
                 {
-                    RejectRequest(RequestRejectionReason.NoColonCharacterFoundInHeaderLine);
+                    valueStart = index;
+                    pValueStart = pCurrent;
+                    break;
                 }
-
-                if (IndexOfAny(pHeader, index, nameEnd, ByteTab, ByteSpace) != -1)
+                else if (ch == ByteCR)
                 {
-                    RejectRequest(RequestRejectionReason.WhitespaceIsNotAllowedInHeaderName);
+                    break;
                 }
+                pCurrent++;
+                index++;
+            }
 
-                // Skip colon
-                index += nameEnd + 1;
-                pCurrent += index;
-                valueStart = index;
-                var pValueStart = pCurrent;
+            var endIndex = headerLineLength - 1;
+            pEnd--;
 
-                while (pCurrent < pEnd)
+            if (*pEnd != ByteLF)
+            {
+                RejectRequest(RequestRejectionReason.HeaderValueMustNotContainCR);
+            }
+
+            endIndex--;
+            pEnd--;
+
+            if (*pEnd != ByteCR)
+            {
+                RejectRequest(RequestRejectionReason.MissingCRInHeaderLine);
+            }
+
+            endIndex--;
+            pEnd--;
+
+            while (pEnd >= pValueStart)
+            {
+                var ch = *pEnd;
+                if (ch != ByteTab && ch != ByteSpace && ch != ByteCR && valueEnd == -1)
                 {
-                    var ch = *pCurrent;
-                    if (ch != ByteTab && ch != ByteSpace && ch != ByteCR)
-                    {
-                        valueStart = index;
-                        pValueStart = pCurrent;
-                        break;
-                    }
-                    else if (ch == ByteCR)
-                    {
-                        break;
-                    }
-                    pCurrent++;
-                    index++;
+                    valueEnd = endIndex;
                 }
-
-                var endIndex = headerLineLength - 1;
-                pEnd--;
-
-                if (*pEnd != ByteLF)
+                else if (ch == ByteCR)
                 {
                     RejectRequest(RequestRejectionReason.HeaderValueMustNotContainCR);
                 }
 
-                endIndex--;
                 pEnd--;
-
-                if (*pEnd != ByteCR)
-                {
-                    RejectRequest(RequestRejectionReason.MissingCRInHeaderLine);
-                }
-
                 endIndex--;
-                pEnd--;
-
-                while (pEnd >= pValueStart)
-                {
-                    var ch = *pEnd;
-                    if (ch != ByteTab && ch != ByteSpace && ch != ByteCR && valueEnd == -1)
-                    {
-                        valueEnd = endIndex;
-                    }
-                    else if (ch == ByteCR)
-                    {
-                        RejectRequest(RequestRejectionReason.HeaderValueMustNotContainCR);
-                    }
-
-                    pEnd--;
-                    endIndex--;
-                }
-
-                if (valueEnd == -1)
-                {
-                    valueEnd = valueStart;
-                }
-                else
-                {
-                    valueEnd++;
-                }
-
-                return true;
             }
+
+            if (valueEnd == -1)
+            {
+                valueEnd = valueStart;
+            }
+            else
+            {
+                valueEnd++;
+            }
+
+            return true;
         }
 
         private static bool IsValidTokenChar(char c)
