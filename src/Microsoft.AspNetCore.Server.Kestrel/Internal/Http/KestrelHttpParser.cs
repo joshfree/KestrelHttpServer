@@ -392,25 +392,38 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
         private unsafe int IndexOf(byte* pBuffer, int index, int length, byte value)
         {
-            for (int i = 0; i < length; i++, index++)
+            var pCurrent = pBuffer + index;
+            var pEnd = pBuffer + index + length;
+
+            while (pCurrent < pEnd)
             {
-                if (pBuffer[index] == value)
+                var ch = *pCurrent;
+                if (ch == value)
                 {
                     return index;
                 }
+                pCurrent++;
+                index++;
             }
             return -1;
         }
 
         private unsafe int IndexOfAny(byte* pBuffer, int index, int length, byte value, byte value1)
         {
-            for (int i = 0; i < length; i++, index++)
+            var pCurrent = pBuffer + index;
+            var pEnd = pBuffer + index + length;
+
+            while (pCurrent < pEnd)
             {
-                if (pBuffer[index] == value || pBuffer[index] == value1)
+                var ch = *pCurrent;
+                if (ch == value || ch == value1)
                 {
                     return index;
                 }
+                pCurrent++;
+                index++;
             }
+
             return -1;
         }
 
@@ -425,6 +438,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
             fixed (byte* pHeader = &span.DangerousGetPinnableReference())
             {
+                var pCurrent = pHeader + index;
+                var pEnd = pHeader + headerLineLength;
+
                 nameEnd = IndexOf(pHeader, index, headerLineLength, ByteColon);
 
                 if (nameEnd == -1)
@@ -439,37 +455,49 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
                 // Skip colon
                 index += nameEnd + 1;
+                pCurrent += index;
                 valueStart = index;
+                var pValueStart = pCurrent;
 
-                while (index < headerLineLength)
+                while (pCurrent < pEnd)
                 {
-                    var ch = pHeader[index];
+                    var ch = *pCurrent;
                     if (ch != ByteTab && ch != ByteSpace && ch != ByteCR)
                     {
                         valueStart = index;
+                        pValueStart = pCurrent;
                         break;
                     }
                     else if (ch == ByteCR)
                     {
                         break;
                     }
+                    pCurrent++;
                     index++;
                 }
 
                 var endIndex = headerLineLength - 1;
-                if (pHeader[endIndex--] != ByteLF)
+                pEnd--;
+
+                if (*pEnd != ByteLF)
                 {
                     RejectRequest(RequestRejectionReason.HeaderValueMustNotContainCR);
                 }
 
-                if (pHeader[endIndex--] != ByteCR)
+                endIndex--;
+                pEnd--;
+
+                if (*pEnd != ByteCR)
                 {
                     RejectRequest(RequestRejectionReason.MissingCRInHeaderLine);
                 }
 
-                while (endIndex >= valueStart)
+                endIndex--;
+                pEnd--;
+
+                while (pEnd >= pValueStart)
                 {
-                    var ch = pHeader[endIndex];
+                    var ch = *pEnd;
                     if (ch != ByteTab && ch != ByteSpace && ch != ByteCR && valueEnd == -1)
                     {
                         valueEnd = endIndex;
@@ -479,6 +507,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                         RejectRequest(RequestRejectionReason.HeaderValueMustNotContainCR);
                     }
 
+                    pEnd--;
                     endIndex--;
                 }
 
